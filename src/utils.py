@@ -5,34 +5,16 @@ import os
 import sys
 import logging
 
-from src.argument import BasicArguments, DataTrainingArguments, ModelArguments, TrainingArguments
+from src.argument import Arguments
 
 
-def get_basic_parser():
-    parser = BasicArguments()
+def get_parser():
+    parser = Arguments()
     args = parser.parse()
 
     # select GPU if available
     use_cuda = torch.cuda.is_available()
     args.device = 'cuda:0' if use_cuda else 'cpu'
-
-    return args
-
-def get_data_parser():
-    parser = DataTrainingArguments()
-    args = parser.parse()
-
-    return args
-
-def get_model_parser():
-    parser = ModelArguments()
-    args = parser.parse()
-
-    return args
-
-def get_training_parser():
-    parser = TrainingArguments()
-    args = parser.parse()
 
     return args
 
@@ -70,7 +52,7 @@ def log_gpu_utilization(logger):
     info = nvmlDeviceGetMemoryInfo(handle)
     logger.info(f"GPU memory occupied: {info.used//1024**2} MB.")
 
-def init_checkpoint_folder(basic_args):
+def init_checkpoint_folder(args):
     """
     Init checkpoint path and make checkpoint directory
 
@@ -78,7 +60,7 @@ def init_checkpoint_folder(basic_args):
         args: Arguments
                 contains hyper-parameter
     """
-    basic_args.checkpoint_path = os.path.join(basic_args.checkpoint_dir, basic_args.name)
-    basic_args.checkpoint_exists = os.path.exists(basic_args.checkpoint_path)
-    if not basic_args.checkpoint_exists:
-        os.makedirs(basic_args.checkpoint_path)
+    args.checkpoint_path = os.path.join(args.checkpoint_dir, args.name)
+    args.checkpoint_exists = os.path.exists(args.checkpoint_path)
+    if not args.checkpoint_exists:
+        os.makedirs(args.checkpoint_path)

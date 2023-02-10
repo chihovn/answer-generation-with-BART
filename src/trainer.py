@@ -12,7 +12,7 @@ import os
 
 from src.data import ELI5DatasetS2S, load_data, format_docs
 
-def prepare_dataset(logger, basic_args, data_args, data_type="train"):
+def prepare_dataset(logger, args, data_type="train"):
     """
     Load dataset from disk
 
@@ -28,48 +28,47 @@ def prepare_dataset(logger, basic_args, data_args, data_type="train"):
         dataset: src.data.Dataset
                 custome Dataset object
     """
-    if basic_args.logger:
+    if args.logger:
         logger.info("Creating Dataset...")
 
-    examples = load_data(data_args.train_data if data_type == "train" else data_args.eval_data)
+    examples = load_data(args.train_data if data_type == "train" else args.eval_data)
     example_docs = format_docs(examples)
     dataset = ELI5DatasetS2S(examples, document_cache=example_docs)
 
-    if basic_args.logger:
+    if args.logger:
         logger.info("Creating Dataset is done.")
 
     return dataset
 
-def prepare_training_stuff(logger, basic_args, model_args):
-    if basic_args.logger:
+def prepare_training_stuff(logger, args):
+    if args.logger:
         logger.info("Creating model and tokenizer...")
 
-    full_model_name = model_args.model_name + '-' + model_args.model_size 
+    full_model_name = args.model_name + '-' + args.model_size 
+    
     tokenizer = AutoTokenizer.from_pretrained(full_model_name)
-    model = AutoModelForSeq2SeqLM.from_pretrained(full_model_name).to(basic_args.device)
-    if model_args.model_path is not None:
-        param_dict = torch.load(model_args.model_path)  # has model weights, optimizer, and scheduler states
+    model = AutoModelForSeq2SeqLM.from_pretrained(full_model_name).to(args.device)
+    if args.model_path is not None:
+        param_dict = torch.load(args.model_path)  # has model weights, optimizer, and scheduler states
         model.load_state_dict(param_dict["model"])
 
-    if basic_args.logger:
+    if args.logger:
         logger.info("Creating model and tokenizer is done")
     return tokenizer, model
 
 class Trainer:
-    def __init__(self, model, tokenizer, train_dataset, eval_dataset, training_args, basic_args, model_args, logger):
+    def __init__(self, model, tokenizer, train_dataset, eval_dataset, args, logger):
         self.model = model
         self.tokenizer = tokenizer
         self.train_dataset = train_dataset
         self.eval_dataset = eval_dataset
-        self.training_args = training_args
-        self.basic_args = basic_args
-        self.model_args = model_args
+        self.args = args
         self.logger = logger
         self.optimizer = None
         self.scheduler = None
-        self.model_save_name = self.model_args.model_name +  '-' + self.model_args.model_size
+        self.model_save_name = self.args.model_name +  '-' + self.args.model_size
 
-        if self.basic_args.is_main:
+        if self.args.is_main:
             try:
                 wandb.login()
                 self.wandb_logger = True
@@ -78,12 +77,12 @@ class Trainer:
                     name='Answer Generation With T5')
             except:
                 self.wandb_logger = False
-                if self.basic_args.logger:
+                if self.args.logger:
                     self.logger.warning("Wandb is not available.")
         else:
             self.wandb_logger = False
 
-        torch.manual_seed(self.basic_args.seed)
+        torch.manual_seed(self.args.seed)
 
     def make_qa_s2s_batch(qa_list, tokenizer, max_len=64, max_a_len=360, device="cuda:0"):
         q_ls = [q for q, a in qa_list]
@@ -117,7 +116,7 @@ class Trainer:
             train_sampler = RandomSampler(self.train_dataset)
 
         model_collate_fn = functools.partial(
-            self.make_qa_s2s_batch, tokenizer=self.tokenizer, max_len=self.training_args.max_length, device=self.basic_args.device
+            self.make_qa_s2s_batch, tokenizer=self.tokenizer, max_len=self.args.max_length, device=self.args.device
         )
 
         data_loader = DataLoader(self.train_dataset, batch_size=self.train_args.batch_size, sampler=train_sampler, collate_fn=model_collate_fn)
@@ -133,17 +132,17 @@ class Trainer:
             loss.backward()
 
             # optimizer
-            if step % self.training_args.backward_freq == 0:
+            if step % self.args.backward_freq == 0:
                 self.optimizer.step()
                 self.scheduler.step()
                 self.model.zero_grad()
 
             # log within the epoch
-            if self.basic_args.logger:
+            if self.args.logger:
                 loc_loss += loss.item()
                 loc_steps += 1
-                if step % self.training_args.print_freq == 0 or step == 1:
-                    self.logger.info("{:2d} {:5d} of {:5d} \t L: {:.3f} \t -- {:.3f}".format(e, step, len(self.train_dataset) // self.training_args.batch_size, loc_loss / loc_steps, time() - st_time))
+                if step % self.args.print_freq == 0 or step == 1:
+                    self.logger.info("{:2d} {:5d} of {:5d} \t L: {:.3f} \t -- {:.3f}".format(e, step, len(self.train_dataset) // self.args.batch_size, loc_loss / loc_steps, time() - st_time))
                     loc_loss = 0
                     loc_steps = 0
 
@@ -152,9 +151,9 @@ class Trainer:
         # make iterator
         train_sampler = SequentialSampler(self.eval_dataset)
         model_collate_fn = functools.partial(
-            self.make_qa_s2s_batch, tokenizer=self.tokenizer, max_len=self.training_args.max_length, device=self.basic_args.device
+            self.make_qa_s2s_batch, tokenizer=self.tokenizer, max_len=self.args.max_length, device=self.args.device
         )
-        data_loader = DataLoader(self.eval_dataset, batch_size=self.training_args.batch_size, sampler=train_sampler, collate_fn=model_collate_fn)
+        data_loader = DataLoader(self.eval_dataset, batch_size=self.args.batch_size, sampler=train_sampler, collate_fn=model_collate_fn)
         epoch_iterator = tqdm(data_loader, desc="Iteration", disable=True)
         # accumulate loss since last print
         loc_steps = 0
@@ -165,25 +164,25 @@ class Trainer:
                 outputs = self.model(**batch_inputs)
                 loss = outputs.loss
                 # log within the epoch
-                if self.basic_args.logger:
+                if self.args.logger:
                     loc_loss += loss.item()
                     loc_steps += 1
-                    if step % self.training_args.print_freq == 0:
-                        self.logger.info("{:5d} of {:5d} \t L: {:.3f} \t -- {:.3f}".format(step, len(self.eval_dataset) // self.training_args.batch_size, loc_loss / loc_steps, time() - st_time))
-        if self.basic_args.logger:
+                    if step % self.args.print_freq == 0:
+                        self.logger.info("{:5d} of {:5d} \t L: {:.3f} \t -- {:.3f}".format(step, len(self.eval_dataset) // self.args.batch_size, loc_loss / loc_steps, time() - st_time))
+        if self.args.logger:
             self.logger.info("Total \t L: {:.3f} \t -- {:.3f}".format(loc_loss / loc_steps, time() - st_time,))
 
     def train(self):
-        self.optimizer = AdamW(self.model.parameters(), lr=self.training_args.lr, eps=1e-8)
+        self.optimizer = AdamW(self.model.parameters(), lr=self.args.lr, eps=1e-8)
         self.scheduler = get_linear_schedule_with_warmup(
             self.optimizer,
             num_warmup_steps=400,
-            num_training_steps=(self.training_args.num_epochs + 1) * math.ceil(len(self.train_dataset) / self.training_args.batch_size),
+            num_training_steps=(self.args.num_epochs + 1) * math.ceil(len(self.train_dataset) / self.args.batch_size),
         )
 
         
 
-        for e in range(self.training_args.num_epochs):
+        for e in range(self.args.num_epochs):
             self.train_qa_s2s_epoch(self, e, curriculum=(e == 0))
 
             m_save_dict = {
@@ -192,7 +191,7 @@ class Trainer:
                 "scheduler": self.scheduler.state_dict(),
             }
 
-            if self.basic_args.logger:
+            if self.args.logger:
                 self.logger.info("Saving model {}_{}".format(self.model_save_name, e))
             self.eval_qa_s2s_epoch(self)
-            torch.save(m_save_dict, os.path.join(self.basic_args.checkpoint_path, "{}_{}.pth".format(self.model_save_name, e)))
+            torch.save(m_save_dict, os.path.join(self.args.checkpoint_path, "{}_{}.pth".format(self.model_save_name, e)))
