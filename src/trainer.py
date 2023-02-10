@@ -68,23 +68,23 @@ class Trainer:
         self.scheduler = None
         self.model_save_name = self.args.model_name +  '-' + self.args.model_size
 
-        if self.args.is_main:
-            try:
-                wandb.login()
-                self.wandb_logger = True
-                wandb.init(
-                    project='answer-generation-with-T5',
-                    name='Answer Generation With T5')
-            except:
-                self.wandb_logger = False
-                if self.args.logger:
-                    self.logger.warning("Wandb is not available.")
-        else:
-            self.wandb_logger = False
+        # if self.args.is_main:
+        #     try:
+        #         wandb.login()
+        #         self.wandb_logger = True
+        #         wandb.init(
+        #             project='answer-generation-with-T5',
+        #             name='Answer Generation With T5')
+        #     except:
+        #         self.wandb_logger = False
+        #         if self.args.logger:
+        #             self.logger.warning("Wandb is not available.")
+        # else:
+        #     self.wandb_logger = False
 
         torch.manual_seed(self.args.seed)
 
-    def make_qa_s2s_batch(qa_list, tokenizer, max_len=64, max_a_len=360, device="cuda:0"):
+    def make_qa_s2s_batch(self, qa_list, tokenizer, max_len=64, max_a_len=360, device="cuda:0"):
         q_ls = [q for q, a in qa_list]
         a_ls = [a for q, a in qa_list]
         q_toks = tokenizer.batch_encode_plus(q_ls, max_length=max_len, pad_to_max_length=True)
@@ -105,46 +105,52 @@ class Trainer:
             "decoder_input_ids": a_ids[:, :-1].contiguous(),
             "labels": labels}   
         return model_inputs
+    def train_qa_s2s_epoch(self, model, dataset, tokenizer, optimizer, scheduler, args, e=0, curriculum=False):
+      model.train()
+      # make iterator 
 
-    def train_qa_s2s_epoch(self, e=0, curriculum=False):
-        self.model.train()
+      if curriculum:
+          train_sampler = SequentialSampler(dataset)
+      else:
+          train_sampler = RandomSampler(dataset)
 
-        # make iterator
-        if curriculum:
-            train_sampler = SequentialSampler(self.train_dataset)
-        else:
-            train_sampler = RandomSampler(self.train_dataset)
+      model_collate_fn = functools.partial(
+          self.make_qa_s2s_batch, tokenizer=tokenizer, max_len=args.max_length, device=args.device
+      )
+      data_loader = DataLoader(dataset, batch_size=args.batch_size, sampler=train_sampler, collate_fn=model_collate_fn)
+      epoch_iterator = tqdm(data_loader, desc="Iteration", disable=True)
+      # accumulate loss since last print
+      loc_steps = 0
+      loc_loss = 0.0
+      st_time = time()
+      for step, batch_inputs in enumerate(epoch_iterator):
+          outputs = model(**batch_inputs)
+          loss = outputs.loss
+          loss.backward()
 
-        model_collate_fn = functools.partial(
-            self.make_qa_s2s_batch, tokenizer=self.tokenizer, max_len=self.args.max_length, device=self.args.device
-        )
+          # optimizer
+          if step % args.backward_freq == 0:
+              optimizer.step()
+              scheduler.step()
+              model.zero_grad()
 
-        data_loader = DataLoader(self.train_dataset, batch_size=self.train_args.batch_size, sampler=train_sampler, collate_fn=model_collate_fn)
-        epoch_iterator = tqdm(data_loader, desc="Iteration", disable=True)
-
-        # accumulate loss since last print
-        loc_steps = 0
-        loc_loss = 0.0
-        st_time = time()
-        for step, batch_inputs in enumerate(epoch_iterator):
-            outputs = self.model(**batch_inputs)
-            loss = outputs.loss
-            loss.backward()
-
-            # optimizer
-            if step % self.args.backward_freq == 0:
-                self.optimizer.step()
-                self.scheduler.step()
-                self.model.zero_grad()
-
-            # log within the epoch
-            if self.args.logger:
-                loc_loss += loss.item()
-                loc_steps += 1
-                if step % self.args.print_freq == 0 or step == 1:
-                    self.logger.info("{:2d} {:5d} of {:5d} \t L: {:.3f} \t -- {:.3f}".format(e, step, len(self.train_dataset) // self.args.batch_size, loc_loss / loc_steps, time() - st_time))
-                    loc_loss = 0
-                    loc_steps = 0
+          # some printing within the epoch
+          if args.logger:
+            loc_loss += loss.item()
+            loc_steps += 1
+            if step % args.print_freq == 0 or step == 1:
+                self.logger.info(
+                    "{:2d} {:5d} of {:5d} \t L: {:.3f} \t -- {:.3f}".format(
+                        e, step, len(dataset) // args.batch_size, loc_loss / loc_steps, time() - st_time,
+                    )
+                )
+                print(
+                    "{:2d} {:5d} of {:5d} \t L: {:.3f} \t -- {:.3f}".format(
+                        e, step, len(dataset) // args.batch_size, loc_loss / loc_steps, time() - st_time,
+                    )
+                )
+                loc_loss = 0
+                loc_steps = 0
 
     def eval_qa_s2s_epoch(self):
         self.model.eval()
@@ -183,7 +189,15 @@ class Trainer:
         
 
         for e in range(self.args.num_epochs):
-            self.train_qa_s2s_epoch(self, e, curriculum=(e == 0))
+            self.train_qa_s2s_epoch(
+                self.model,
+                self.train_dataset,
+                self.tokenizer,
+                self.optimizer,
+                self.scheduler,
+                self.args,
+                e,
+                curriculum=(e == 0))
 
             m_save_dict = {
                 "model": self.model.state_dict(),
