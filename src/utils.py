@@ -46,11 +46,14 @@ def get_logger(is_main=True, filename=None):
     return logger
 
 
-def log_gpu_utilization(logger):
+def get_gpu_utilization(logger):
     nvmlInit()
     handle = nvmlDeviceGetHandleByIndex(0)
     info = nvmlDeviceGetMemoryInfo(handle)
-    logger.info(f"GPU memory occupied: {info.used//1024**2} MB.")
+    if logger == None:
+        print(f"GPU memory occupied: {info.used//1024**2} MB.")
+    else:
+        logger.info(f"GPU memory occupied: {info.used//1024**2} MB.")
 
 def init_checkpoint_folder(args):
     """

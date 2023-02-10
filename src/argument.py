@@ -8,6 +8,7 @@ class  Arguments():
 
     def initialize_parser(self):
         self.parser.add_argument('--is_main', type=bool, default=True, help='whether the generator function is training or not')
+        self.parser.add_argument('--is_colab', type=bool, default=True, help='whether training process is on colab or not')
         self.parser.add_argument('--device', type=str, default='cuda:0', help='gpu or cpu')
         self.parser.add_argument('--seed', type=int, default=0, help='random seed for initialization')
         self.parser.add_argument('--name', type=str, default='experiment_name', help='name of the experiment')

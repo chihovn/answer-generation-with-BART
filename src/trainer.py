@@ -29,20 +29,26 @@ def prepare_dataset(logger, args, data_type="train"):
                 custome Dataset object
     """
     if args.logger:
-        logger.info("Creating Dataset...")
+        logger.info('Creating Dataset...')
+    elif args.is_colab:
+        print('Creating Dataset...')
 
     examples = load_data(args.train_data if data_type == "train" else args.eval_data)
     example_docs = format_docs(examples)
     dataset = ELI5DatasetS2S(examples, document_cache=example_docs)
 
     if args.logger:
-        logger.info("Creating Dataset is done.")
+        logger.info('Creating Dataset is done.')
+    elif args.is_colab:
+        print('Creating Dataset is done.')
 
     return dataset
 
 def prepare_training_stuff(logger, args):
     if args.logger:
-        logger.info("Creating model and tokenizer...")
+        logger.info('Creating model and tokenizer...')
+    elif args.is_colab:
+        print('Creating model and tokenizer...')
 
     full_model_name = args.model_name + '-' + args.model_size 
     
@@ -53,7 +59,10 @@ def prepare_training_stuff(logger, args):
         model.load_state_dict(param_dict["model"])
 
     if args.logger:
-        logger.info("Creating model and tokenizer is done")
+        logger.info('Creating model and tokenizer is done')
+    elif args.is_colab:
+        print('Creating model and tokenizer is done')
+
     return tokenizer, model
 
 class Trainer:
@@ -105,50 +114,53 @@ class Trainer:
             "decoder_input_ids": a_ids[:, :-1].contiguous(),
             "labels": labels}   
         return model_inputs
+
     def train_qa_s2s_epoch(self, model, dataset, tokenizer, optimizer, scheduler, args, e=0, curriculum=False):
-      model.train()
-      # make iterator 
+        model.train()
+        # make iterator 
 
-      if curriculum:
-          train_sampler = SequentialSampler(dataset)
-      else:
-          train_sampler = RandomSampler(dataset)
+        if curriculum:
+            train_sampler = SequentialSampler(dataset)
+        else:
+            train_sampler = RandomSampler(dataset)
 
-      model_collate_fn = functools.partial(
-          self.make_qa_s2s_batch, tokenizer=tokenizer, max_len=args.max_length, device=args.device
-      )
-      data_loader = DataLoader(dataset, batch_size=args.batch_size, sampler=train_sampler, collate_fn=model_collate_fn)
-      epoch_iterator = tqdm(data_loader, desc="Iteration", disable=True)
-      # accumulate loss since last print
-      loc_steps = 0
-      loc_loss = 0.0
-      st_time = time()
-      for step, batch_inputs in enumerate(epoch_iterator):
-          outputs = model(**batch_inputs)
-          loss = outputs.loss
-          loss.backward()
+        model_collate_fn = functools.partial(
+            self.make_qa_s2s_batch, tokenizer=tokenizer, max_len=args.max_length, device=args.device
+        )
+        data_loader = DataLoader(dataset, batch_size=args.batch_size, sampler=train_sampler, collate_fn=model_collate_fn)
+        epoch_iterator = tqdm(data_loader, desc="Iteration", disable=True)
+        # accumulate loss since last print
+        loc_steps = 0
+        loc_loss = 0.0
+        st_time = time()
+        for step, batch_inputs in enumerate(epoch_iterator):
+            outputs = model(**batch_inputs)
+            loss = outputs.loss
+            loss.backward()
 
-          # optimizer
-          if step % args.backward_freq == 0:
-              optimizer.step()
-              scheduler.step()
-              model.zero_grad()
+            # optimizer
+            if step % args.backward_freq == 0:
+                optimizer.step()
+                scheduler.step()
+                model.zero_grad()
 
-          # some printing within the epoch
-          if args.logger:
+            # some printing within the epoch
+            
             loc_loss += loss.item()
             loc_steps += 1
             if step % args.print_freq == 0 or step == 1:
-                self.logger.info(
-                    "{:2d} {:5d} of {:5d} \t L: {:.3f} \t -- {:.3f}".format(
-                        e, step, len(dataset) // args.batch_size, loc_loss / loc_steps, time() - st_time,
+                if args.logger:
+                    self.logger.info(
+                        "{:2d} {:5d} of {:5d} \t L: {:.3f} \t -- {:.3f}".format(
+                            e, step, len(dataset) // args.batch_size, loc_loss / loc_steps, time() - st_time,
+                        )
                     )
-                )
-                print(
-                    "{:2d} {:5d} of {:5d} \t L: {:.3f} \t -- {:.3f}".format(
-                        e, step, len(dataset) // args.batch_size, loc_loss / loc_steps, time() - st_time,
+                elif args.is_colab:
+                    print(
+                        "{:2d} {:5d} of {:5d} \t L: {:.3f} \t -- {:.3f}".format(
+                            e, step, len(dataset) // args.batch_size, loc_loss / loc_steps, time() - st_time,
+                        )
                     )
-                )
                 loc_loss = 0
                 loc_steps = 0
 
@@ -169,14 +181,20 @@ class Trainer:
             for step, batch_inputs in enumerate(epoch_iterator):
                 outputs = self.model(**batch_inputs)
                 loss = outputs.loss
-                # log within the epoch
-                if self.args.logger:
-                    loc_loss += loss.item()
-                    loc_steps += 1
-                    if step % self.args.print_freq == 0:
+
+                # some printing within the epoch
+                
+                loc_loss += loss.item()
+                loc_steps += 1
+                if step % self.args.print_freq == 0:
+                    if self.args.logger:
                         self.logger.info("{:5d} of {:5d} \t L: {:.3f} \t -- {:.3f}".format(step, len(self.eval_dataset) // self.args.batch_size, loc_loss / loc_steps, time() - st_time))
+                    elif self.args.is_colab:
+                        print("{:5d} of {:5d} \t L: {:.3f} \t -- {:.3f}".format(step, len(self.eval_dataset) // self.args.batch_size, loc_loss / loc_steps, time() - st_time))
         if self.args.logger:
             self.logger.info("Total \t L: {:.3f} \t -- {:.3f}".format(loc_loss / loc_steps, time() - st_time,))
+        elif self.args.is_colab:
+            print("Total \t L: {:.3f} \t -- {:.3f}".format(loc_loss / loc_steps, time() - st_time,))
 
     def train(self):
         self.optimizer = AdamW(self.model.parameters(), lr=self.args.lr, eps=1e-8)
@@ -207,5 +225,7 @@ class Trainer:
 
             if self.args.logger:
                 self.logger.info("Saving model {}_{}".format(self.model_save_name, e))
+            elif self.args.is_colab:
+                print("Saving model {}_{}".format(self.model_save_name, e))
             self.eval_qa_s2s_epoch(self)
             torch.save(m_save_dict, os.path.join(self.args.checkpoint_path, "{}_{}.pth".format(self.model_save_name, e)))
