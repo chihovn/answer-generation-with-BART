@@ -1,5 +1,5 @@
 import torch
-from pynvml import *
+from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetMemoryInfo
 
 import os
 import sys

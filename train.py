@@ -4,7 +4,6 @@ from src.utils import init_checkpoint_folder, log_gpu_utilization, get_basic_par
 from src.trainer import Trainer, prepare_dataset, prepare_training_stuff
 
 
-
 def main(basic_args):
     # set seed
     torch.manual_seed(basic_args.seed)
@@ -56,6 +55,6 @@ def main(basic_args):
         log_gpu_utilization(logger)
 
 
-if __name__ == 'main':
+if __name__ == '__main__':
     basic_args = get_basic_parser()
     main(basic_args)
