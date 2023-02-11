@@ -56,20 +56,21 @@ def main(args):
     if (args.logger or args.is_notebook) and args.device == 'cuda:0':
         get_gpu_utilization(logger)
 
-    if args.logger:
-        logger.info('=============Start predicting on eval_dataset=============')
-    elif args.is_notebook:
-        print('=============Start predicting on eval_dataset=============')
-    
-    dataset = load_data(args.eval_data)
-    predicted, reference = trainer.predict(dataset)
+    if eval_dataset is not None:
+        if args.logger:
+            logger.info('=============Start predicting on eval_dataset=============')
+        elif args.is_notebook:
+            print('=============Start predicting on eval_dataset=============')
+        
+        dataset = load_data(args.eval_data)
+        predicted, reference = trainer.predict(dataset)
 
-    if args.logger:
-        logger.info('=============Start evaluating on eval_dataset=============')
-    elif args.is_notebook:
-        print('=============Start evaluating on eval_dataset=============')
+        if args.logger:
+            logger.info('=============Start evaluating on eval_dataset=============')
+        elif args.is_notebook:
+            print('=============Start evaluating on eval_dataset=============')
 
-    trainer.evaluate(predicted, reference)
+        trainer.evaluate(predicted, reference)
 
 
 if __name__ == '__main__':

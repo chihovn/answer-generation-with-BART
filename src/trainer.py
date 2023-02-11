@@ -88,7 +88,7 @@ class Trainer:
                 self.wandb_logger = True
                 wandb.init(
                     project='ans-gen-BART',
-                    name='Training 1')
+                    name='experiment-1')
             except:
                 self.wandb_logger = False
                 if self.args.logger:
@@ -254,7 +254,7 @@ class Trainer:
                 self.eval_qa_s2s_epoch()
 
                 if self.args.logger:
-                    self.logger.info("Saving model {}_{}".format(self.model_save_name, e))
+                    self.logger.info("Saving model {}_{} after {} epoch(s)".format(self.model_save_name, e, e))
                 elif self.args.is_notebook:
                     print("Saving model {}_{}".format(self.model_save_name, e))
                 torch.save(m_save_dict, os.path.join(self.args.checkpoint_path, "{}_{}.pth".format(self.model_save_name.replace("facebook/",""), e)))

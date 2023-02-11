@@ -4,7 +4,7 @@ python3 train.py \
 	--eval_data ./data/processed/ELI5_val_10_doc.json \
 	--seed 0 \
 	--is_notebook True \
-    --name training_1 \
+    --name experiment-1 \
     --logger False \
     --checkpoint_dir checkpoint \
     --model_name facebook/bart \
