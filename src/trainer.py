@@ -6,6 +6,7 @@ import functools
 from nltk import PorterStemmer
 from rouge import Rouge
 from spacy.lang.en import English
+from tabulate import tabulate
 
 from pathlib import Path
 from tqdm import tqdm
@@ -34,7 +35,7 @@ def prepare_dataset(logger, args, data_type="train"):
     """
     if args.logger:
         logger.info('Creating Dataset...')
-    elif args.is_colab:
+    elif args.is_notebook:
         print('Creating Dataset...')
 
     examples = load_data(args.train_data if data_type == "train" else args.eval_data)
@@ -43,7 +44,7 @@ def prepare_dataset(logger, args, data_type="train"):
 
     if args.logger:
         logger.info('Creating Dataset is done.')
-    elif args.is_colab:
+    elif args.is_notebook:
         print('Creating Dataset is done.')
 
     return dataset
@@ -51,7 +52,7 @@ def prepare_dataset(logger, args, data_type="train"):
 def prepare_training_stuff(logger, args):
     if args.logger:
         logger.info('Creating model and tokenizer...')
-    elif args.is_colab:
+    elif args.is_notebook:
         print('Creating model and tokenizer...')
 
     full_model_name = args.model_name + '-' + args.model_size 
@@ -64,7 +65,7 @@ def prepare_training_stuff(logger, args):
 
     if args.logger:
         logger.info('Creating model and tokenizer is done')
-    elif args.is_colab:
+    elif args.is_notebook:
         print('Creating model and tokenizer is done')
 
     return tokenizer, model
@@ -86,8 +87,8 @@ class Trainer:
                 wandb.login()
                 self.wandb_logger = True
                 wandb.init(
-                    project='answer-generation-with-BART',
-                    name='Answer Generation With BART')
+                    project='ans-gen-BART',
+                    name='Training 1')
             except:
                 self.wandb_logger = False
                 if self.args.logger:
@@ -97,15 +98,15 @@ class Trainer:
 
         torch.manual_seed(self.args.seed)
 
-    def make_qa_s2s_batch(self, qa_list, tokenizer, max_len=64, max_a_len=360, device="cuda:0"):
+    def make_qa_s2s_batch(self, qa_list, tokenizer, max_len=64, max_a_len=256, device="cuda:0"):
         q_ls = [q for q, a in qa_list]
         a_ls = [a for q, a in qa_list]
-        q_toks = tokenizer.batch_encode_plus(q_ls, max_length=max_len, truncation=True)
+        q_toks = tokenizer.batch_encode_plus(q_ls, max_length=max_len, pad_to_max_length=True)
         q_ids, q_mask = (
             torch.LongTensor(q_toks["input_ids"]).to(device),
             torch.LongTensor(q_toks["attention_mask"]).to(device),
         )
-        a_toks = tokenizer.batch_encode_plus(a_ls, max_length=max_a_len, truncation=True)
+        a_toks = tokenizer.batch_encode_plus(a_ls, max_length=max_a_len, pad_to_max_length=True)
         a_ids, a_mask = (
             torch.LongTensor(a_toks["input_ids"]).to(device),
             torch.LongTensor(a_toks["attention_mask"]).to(device),
@@ -124,22 +125,28 @@ class Trainer:
         # make iterator 
 
         if curriculum:
-            train_sampler = SequentialSampler(self.dataset)
+            train_sampler = SequentialSampler(self.train_dataset)
         else:
-            train_sampler = RandomSampler(self.dataset)
+            train_sampler = RandomSampler(self.train_dataset)
 
         model_collate_fn = functools.partial(
-            self.make_qa_s2s_batch, tokenizer=self.tokenizer, max_len=self.args.max_length, max_a_len=self.args.max_ans_length, device=self.args.device
+            self.make_qa_s2s_batch, tokenizer=self.tokenizer, max_len=self.args.max_input_length, max_a_len=self.args.max_ans_length, device=self.args.device
         )
-        data_loader = DataLoader(self.dataset, batch_size=self.args.batch_size, sampler=train_sampler, collate_fn=model_collate_fn)
+        data_loader = DataLoader(self.train_dataset, batch_size=self.args.batch_size, sampler=train_sampler, collate_fn=model_collate_fn)
         epoch_iterator = tqdm(data_loader, desc="Iteration", disable=True)
         # accumulate loss since last print
         loc_steps = 0
         loc_loss = 0.0
         st_time = time()
+
+        save_epoch_path = os.path.join(self.args.checkpoint_path, 'epoch{}'.format(e))
+        if not os.path.exists(save_epoch_path):
+            os.makedirs(save_epoch_path)
         for step, batch_inputs in enumerate(epoch_iterator):
             outputs = self.model(**batch_inputs)
             loss = outputs.loss
+            if self.wandb_logger:
+                wandb.log({"train_loss": loss})
             loss.backward()
 
             # optimizer
@@ -149,34 +156,44 @@ class Trainer:
                 self.model.zero_grad()
 
             # some printing within the epoch
-            
             loc_loss += loss.item()
             loc_steps += 1
-            if step % self.args.print_freq == 0 or step == 1:
+            if step % self.args.train_print_freq == 0 or step == math.floor(len(self.train_dataset) / self.args.batch_size) or step == 1:
                 if self.args.logger:
                     self.logger.info(
                         "{:2d} {:5d} of {:5d} \t L: {:.3f} \t -- {:.3f}".format(
-                            e, step, len(self.dataset) // self.args.batch_size, loc_loss / loc_steps, time() - st_time,
+                            e, step, len(self.train_dataset) // self.args.batch_size, loc_loss / loc_steps, time() - st_time,
                         )
                     )
-                elif self.args.is_colab:
+                elif self.args.is_notebook:
                     print(
                         "{:2d} {:5d} of {:5d} \t L: {:.3f} \t -- {:.3f}".format(
-                            e, step, len(self.dataset) // self.args.batch_size, loc_loss / loc_steps, time() - st_time,
+                            e, step, len(self.train_dataset) // self.args.batch_size, loc_loss / loc_steps, time() - st_time,
                         )
                     )
                 loc_loss = 0
                 loc_steps = 0
+            if step != 0 and (step % self.args.save_freq == 0 or step == math.floor(len(self.train_dataset) / self.args.batch_size)):
+                if self.args.logger:
+                    self.logger.info("Saving model {}_{}_{}".format(self.model_save_name, e, step))
+                elif self.args.is_notebook:
+                    print("Saving model {}_{}_{}".format(self.model_save_name, e, step))
+
+                m_save_dict = {
+                    "model": self.model.state_dict(),
+                    "optimizer": self.optimizer.state_dict(),
+                    "scheduler": self.scheduler.state_dict()}
+                torch.save(m_save_dict, os.path.join(save_epoch_path, "{}_{}_{}.pth".format(self.model_save_name.replace("facebook/",""), e, step)))
 
     def eval_qa_s2s_epoch(self):
         self.model.eval()
         # make iterator
         train_sampler = SequentialSampler(self.eval_dataset)
         model_collate_fn = functools.partial(
-            self.make_qa_s2s_batch, tokenizer=self.tokenizer, max_len=self.args.max_length, max_a_len=self.args.max_ans_length, device=self.args.device)
+            self.make_qa_s2s_batch, tokenizer=self.tokenizer, max_len=self.args.max_input_length, max_a_len=self.args.max_ans_length, device=self.args.device)
 
         data_loader = DataLoader(self.eval_dataset, batch_size=self.args.batch_size, sampler=train_sampler, collate_fn=model_collate_fn)
-        epoch_iterator = tqdm(self.data_loader, desc="Iteration", disable=True)
+        epoch_iterator = tqdm(data_loader, desc="Iteration", disable=True)
         # accumulate loss since last print
         loc_steps = 0
         loc_loss = 0.0
@@ -185,19 +202,22 @@ class Trainer:
             for step, batch_inputs in enumerate(epoch_iterator):
                 outputs = self.model(**batch_inputs)
                 loss = outputs.loss
+                if self.wandb_logger:
+                  wandb.log({"val_loss": loss})
 
                 # some printing within the epoch
                 
                 loc_loss += loss.item()
                 loc_steps += 1
-                if step % self.args.print_freq == 0:
+                
+                if step % self.args.eval_print_freq == 0 or step == math.floor(len(self.eval_dataset) / self.args.batch_size):
                     if self.args.logger:
                         self.logger.info("{:5d} of {:5d} \t L: {:.3f} \t -- {:.3f}".format(step, len(self.eval_dataset) // self.args.batch_size, loc_loss / loc_steps, time() - st_time))
-                    elif self.args.is_colab:
+                    elif self.args.is_notebook:
                         print("{:5d} of {:5d} \t L: {:.3f} \t -- {:.3f}".format(step, len(self.eval_dataset) // self.args.batch_size, loc_loss / loc_steps, time() - st_time))
         if self.args.logger:
             self.logger.info("Total \t L: {:.3f} \t -- {:.3f}".format(loc_loss / loc_steps, time() - st_time,))
-        elif self.args.is_colab:
+        elif self.args.is_notebook:
             print("Total \t L: {:.3f} \t -- {:.3f}".format(loc_loss / loc_steps, time() - st_time,))
 
     def train(self):
@@ -207,27 +227,39 @@ class Trainer:
             num_warmup_steps=400,
             num_training_steps=(self.args.num_epochs + 1) * math.ceil(len(self.train_dataset) / self.args.batch_size))
 
-        
-
-        for e in range(self.args.num_epochs):
-            self.train_qa_s2s_epoch(
-                self,
-                e,
-                curriculum=(e == 0))
-
-            m_save_dict = {
-                "model": self.model.state_dict(),
-                "optimizer": self.optimizer.state_dict(),
-                "scheduler": self.scheduler.state_dict(),
-            }
-
+        if (self.args.model_path is not None) and (self.args.retrain == False):
             if self.args.logger:
-                self.logger.info("Saving model {}_{}".format(self.model_save_name, e))
-            elif self.args.is_colab:
-                print("Saving model {}_{}".format(self.model_save_name, e))
+                self.logger.info('Skip training model. Evaluating...')
+            elif self.args.is_notebook:
+                print('Skip training model. Evaluating...')
 
-            self.eval_qa_s2s_epoch(self)
-            torch.save(m_save_dict, os.path.join(self.args.checkpoint_path, "{}_{}.pth".format(self.model_save_name, e)))
+            self.eval_qa_s2s_epoch()
+        else:
+            for e in range(self.args.num_epochs):
+                self.train_qa_s2s_epoch(
+                    e,
+                    curriculum=(e == 0))
+
+                m_save_dict = {
+                    "model": self.model.state_dict(),
+                    "optimizer": self.optimizer.state_dict(),
+                    "scheduler": self.scheduler.state_dict(),
+                }
+
+                if self.args.logger:
+                    self.logger.info("Evaluate after {} epoch(s)".format(e))
+                elif self.args.is_notebook:
+                    print("Evaluate after {} epoch(s)".format(e))
+
+                self.eval_qa_s2s_epoch()
+
+                if self.args.logger:
+                    self.logger.info("Saving model {}_{}".format(self.model_save_name, e))
+                elif self.args.is_notebook:
+                    print("Saving model {}_{}".format(self.model_save_name, e))
+                torch.save(m_save_dict, os.path.join(self.args.checkpoint_path, "{}_{}.pth".format(self.model_save_name.replace("facebook/",""), e)))
+        if self.wandb_logger:
+            wandb.finish()
 
     # generate answer from input "question: ... context: <p> ..."
     def generate(
@@ -267,15 +299,15 @@ class Trainer:
         )
         return [tokenizer.decode(ans_ids, skip_special_tokens=True).strip() for ans_ids in generated_ids]
 
-    def predict(self):
+    def predict(self, dataset):
         predicted = []
         reference = []
         st_time = time()
         # Generate answers for the full test set
-        for step in range(len(self.eval_dataset)):
+        for step in range(len(dataset)):
             # create support document with the dense index
-            question = self.eval_dataset[step]['question']
-            support_doc = "<P> " + " <P> ".join([str(p) for p in eval[step]["ctxs"]])
+            question = dataset[step]['question']
+            support_doc = "<P> " + " <P> ".join([str(p) for p in dataset[step]["ctxs"]])
             # concatenate question and support document into BART input
             question_doc = "question: {} context: {}".format(question, support_doc)
             # generate an answer with beam search
@@ -283,13 +315,12 @@ class Trainer:
                         num_answers=1,num_beams=8,min_len=self.args.min_ans_length,
                         max_len=self.args.max_ans_length,max_input_length=self.args.max_input_length,device=self.args.device)
             predicted += [answer[0]]
-            reference += [self.eval_dataset[i]['answers'][0]]
-            if step % self.args.print_freq == 0:
+            reference += [dataset[step]['answers'][0]]
+            if step % self.args.eval_print_freq == 0 or step == (len(dataset) - 1):
                 if self.args.logger:
-                    self.logger.info("{:5d} of {:5d} \t -- {:.3f}".format(step, len(self.eval_dataset) // self.args.batch_size, time() - st_time))
-                elif self.args.is_colab:
-                    print("{:5d} of {:5d} \t L: {:.3f} \t -- {:.3f}".format(step, len(self.eval_dataset) // self.args.batch_size, time() - st_time))
-                st_time = time()
+                    self.logger.info("{:5d} of {:5d} \t -- {:.3f}".format(step, len(dataset) - 1, time() - st_time))
+                elif self.args.is_notebook:
+                    print("{:5d} of {:5d} \t -- {:.3f}".format(step, len(dataset) - 1, time() - st_time))
 
         return predicted, reference
 
@@ -314,7 +345,9 @@ class Trainer:
             'rougeL': [scores['rouge-l']['p'], scores['rouge-l']['r'], scores['rouge-l']['f']],
         }, index=[ 'P', 'R', 'F'])
 
+        df.style.format({'rouge1': "{:.4f}", 'rouge2': "{:.4f}", 'rougeL': "{:.4f}"})
+
         if self.args.logger:
-            self.logger.info(df.style.format({'rouge1': "{:.4f}", 'rouge2': "{:.4f}", 'rougeL': "{:.4f}"}))
-        elif self.args.is_colab:
-            print(df.style.format({'rouge1': "{:.4f}", 'rouge2': "{:.4f}", 'rougeL': "{:.4f}"}))
+            self.logger.info(tabulate(df, headers = 'keys', tablefmt = 'psql'))
+        elif self.args.is_notebook:
+            print(tabulate(df, headers = 'keys', tablefmt = 'psql'))

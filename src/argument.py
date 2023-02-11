@@ -8,7 +8,7 @@ class  Arguments():
 
     def initialize_parser(self):
         self.parser.add_argument('--is_main', type=bool, default=True, help='whether the generator function is training or not')
-        self.parser.add_argument('--is_colab', type=bool, default=True, help='whether training process is on colab or not')
+        self.parser.add_argument('--is_notebook', type=bool, default=True, help='whether training process is on colab or not')
         self.parser.add_argument('--device', type=str, default='cuda:0', help='gpu or cpu')
         self.parser.add_argument('--seed', type=int, default=0, help='random seed for initialization')
         self.parser.add_argument('--name', type=str, default='experiment_name', help='name of the experiment')
@@ -29,9 +29,13 @@ class  Arguments():
         self.parser.add_argument("--max_input_length", default=1024, type=int)
         self.parser.add_argument("--min_ans_length", default=64, type=int)
         self.parser.add_argument("--max_ans_length", default=256, type=int)
-        self.parser.add_argument('--print_freq', type=int, default=1000, help='print intermdiate results of evaluation every <eval_print_freq> steps')
+        self.parser.add_argument('--train_print_freq', type=int, default=1000, help='print intermdiate results of training process every <train_print_freq> steps')
+        self.parser.add_argument('--eval_print_freq', type=int, default=100,
+                        help='print intermdiate results of evaluation every <eval_print_freq> steps')
+        self.parser.add_argument('--save_freq', type=int, default=5000, help='save intermdiate results of training process every <save_freq> steps')
         self.parser.add_argument('--lr', type=float, default=2e-4, help='learning rate')
         self.parser.add_argument('--backward_freq', type=int, default=16, help='learning rate')
+        self.parser.add_argument('--retrain', type=bool, default=False, help='whether to retrain model or not')
 
     def parse(self):
         opt = self.parser.parse_args()

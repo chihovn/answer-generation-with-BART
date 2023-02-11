@@ -67,3 +67,4 @@ def init_checkpoint_folder(args):
     args.checkpoint_exists = os.path.exists(args.checkpoint_path)
     if not args.checkpoint_exists:
         os.makedirs(args.checkpoint_path)
+

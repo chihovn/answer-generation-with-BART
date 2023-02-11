@@ -4,14 +4,14 @@ import os
 
 from src.utils import init_checkpoint_folder, get_gpu_utilization, get_parser, get_logger
 from src.trainer import Trainer, prepare_dataset, prepare_training_stuff
-
+from src.data import load_data
 
 def main(args):
     # set seed
     torch.manual_seed(args.seed)
     init_checkpoint_folder(args)
 
-    if args.is_colab and args.logger:
+    if args.is_notebook and args.logger:
         args.logger = False
         print('Can\'t use logging in notebook')
 
@@ -20,7 +20,7 @@ def main(args):
     else:
         logger = None
 
-    if (args.logger or args.is_colab) and args.device == 'cuda:0':
+    if (args.logger or args.is_notebook) and args.device == 'cuda:0':
         get_gpu_utilization(logger)
 
     train_dataset = prepare_dataset(logger, args, data_type='train')
@@ -30,12 +30,12 @@ def main(args):
     else:
         eval_dataset =  None
     
-    if (args.logger or args.is_colab) and args.device == 'cuda:0':
+    if (args.logger or args.is_notebook) and args.device == 'cuda:0':
         get_gpu_utilization(logger)
     
     tokenizer, model = prepare_training_stuff(logger, args)
 
-    if (args.logger or args.is_colab) and args.device == 'cuda:0':
+    if (args.logger or args.is_notebook) and args.device == 'cuda:0':
         get_gpu_utilization(logger)
     
     trainer = Trainer(
@@ -48,24 +48,25 @@ def main(args):
 
     if args.logger:
         logger.info('=============Start training=============')
-    elif args.is_colab:
+    elif args.is_notebook:
         print('=============Start training=============')
     
     trainer.train()
 
-    if (args.logger or args.is_colab) and args.device == 'cuda:0':
+    if (args.logger or args.is_notebook) and args.device == 'cuda:0':
         get_gpu_utilization(logger)
 
     if args.logger:
         logger.info('=============Start predicting on eval_dataset=============')
-    elif args.is_colab:
+    elif args.is_notebook:
         print('=============Start predicting on eval_dataset=============')
     
-    predicted, reference = trainer.predict()
+    dataset = load_data(args.eval_data)
+    predicted, reference = trainer.predict(dataset)
 
     if args.logger:
         logger.info('=============Start evaluating on eval_dataset=============')
-    elif args.is_colab:
+    elif args.is_notebook:
         print('=============Start evaluating on eval_dataset=============')
 
     trainer.evaluate(predicted, reference)
