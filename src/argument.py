@@ -26,7 +26,9 @@ class  Arguments():
 
         self.parser.add_argument("--batch_size", default=1, type=int, help="Batch size for training.")
         self.parser.add_argument('--num_epochs', type=int, default=1, help='number of training epochs')
-        self.parser.add_argument("--max_length", default=1024, type=int)
+        self.parser.add_argument("--max_input_length", default=1024, type=int)
+        self.parser.add_argument("--min_ans_length", default=64, type=int)
+        self.parser.add_argument("--max_ans_length", default=256, type=int)
         self.parser.add_argument('--print_freq', type=int, default=1000, help='print intermdiate results of evaluation every <eval_print_freq> steps')
         self.parser.add_argument('--lr', type=float, default=2e-4, help='learning rate')
         self.parser.add_argument('--backward_freq', type=int, default=16, help='learning rate')

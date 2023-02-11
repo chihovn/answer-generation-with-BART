@@ -56,6 +56,20 @@ def main(args):
     if (args.logger or args.is_colab) and args.device == 'cuda:0':
         get_gpu_utilization(logger)
 
+    if args.logger:
+        logger.info('=============Start predicting on eval_dataset=============')
+    elif args.is_colab:
+        print('=============Start predicting on eval_dataset=============')
+    
+    predicted, reference = trainer.predict()
+
+    if args.logger:
+        logger.info('=============Start evaluating on eval_dataset=============')
+    elif args.is_colab:
+        print('=============Start evaluating on eval_dataset=============')
+
+    trainer.evaluate(predicted, reference)
+
 
 if __name__ == '__main__':
     args = get_parser()

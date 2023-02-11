@@ -17,9 +17,7 @@ def format_docs(data):
   
 class ELI5DatasetS2S(Dataset): # modified
     def __init__(
-        self, examples_array, make_doc_fun=None, document_cache=None, training=True
-    ):
-        self.training = training
+        self, examples_array, make_doc_fun=None, document_cache=None):
         self.data = examples_array
         self.make_doc_function = make_doc_fun
         self.document_cache = {} if document_cache is None else document_cache

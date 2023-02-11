@@ -3,9 +3,13 @@ from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from transformers import AdamW, AutoTokenizer, AutoModelForSeq2SeqLM, get_linear_schedule_with_warmup
 import wandb
 import functools
+from nltk import PorterStemmer
+from rouge import Rouge
+from spacy.lang.en import English
 
 from pathlib import Path
 from tqdm import tqdm
+import pandas as pd
 from time import time
 import math
 import os
@@ -77,31 +81,31 @@ class Trainer:
         self.scheduler = None
         self.model_save_name = self.args.model_name +  '-' + self.args.model_size
 
-        # if self.args.is_main:
-        #     try:
-        #         wandb.login()
-        #         self.wandb_logger = True
-        #         wandb.init(
-        #             project='answer-generation-with-T5',
-        #             name='Answer Generation With T5')
-        #     except:
-        #         self.wandb_logger = False
-        #         if self.args.logger:
-        #             self.logger.warning("Wandb is not available.")
-        # else:
-        #     self.wandb_logger = False
+        if self.args.is_main:
+            try:
+                wandb.login()
+                self.wandb_logger = True
+                wandb.init(
+                    project='answer-generation-with-BART',
+                    name='Answer Generation With BART')
+            except:
+                self.wandb_logger = False
+                if self.args.logger:
+                    self.logger.warning("Wandb is not available.")
+        else:
+            self.wandb_logger = False
 
         torch.manual_seed(self.args.seed)
 
     def make_qa_s2s_batch(self, qa_list, tokenizer, max_len=64, max_a_len=360, device="cuda:0"):
         q_ls = [q for q, a in qa_list]
         a_ls = [a for q, a in qa_list]
-        q_toks = tokenizer.batch_encode_plus(q_ls, max_length=max_len, pad_to_max_length=True)
+        q_toks = tokenizer.batch_encode_plus(q_ls, max_length=max_len, truncation=True)
         q_ids, q_mask = (
             torch.LongTensor(q_toks["input_ids"]).to(device),
             torch.LongTensor(q_toks["attention_mask"]).to(device),
         )
-        a_toks = tokenizer.batch_encode_plus(a_ls, max_length=min(max_len, max_a_len), pad_to_max_length=True)
+        a_toks = tokenizer.batch_encode_plus(a_ls, max_length=max_a_len, truncation=True)
         a_ids, a_mask = (
             torch.LongTensor(a_toks["input_ids"]).to(device),
             torch.LongTensor(a_toks["attention_mask"]).to(device),
@@ -115,50 +119,50 @@ class Trainer:
             "labels": labels}   
         return model_inputs
 
-    def train_qa_s2s_epoch(self, model, dataset, tokenizer, optimizer, scheduler, args, e=0, curriculum=False):
-        model.train()
+    def train_qa_s2s_epoch(self, e=0, curriculum=False):
+        self.model.train()
         # make iterator 
 
         if curriculum:
-            train_sampler = SequentialSampler(dataset)
+            train_sampler = SequentialSampler(self.dataset)
         else:
-            train_sampler = RandomSampler(dataset)
+            train_sampler = RandomSampler(self.dataset)
 
         model_collate_fn = functools.partial(
-            self.make_qa_s2s_batch, tokenizer=tokenizer, max_len=args.max_length, device=args.device
+            self.make_qa_s2s_batch, tokenizer=self.tokenizer, max_len=self.args.max_length, max_a_len=self.args.max_ans_length, device=self.args.device
         )
-        data_loader = DataLoader(dataset, batch_size=args.batch_size, sampler=train_sampler, collate_fn=model_collate_fn)
+        data_loader = DataLoader(self.dataset, batch_size=self.args.batch_size, sampler=train_sampler, collate_fn=model_collate_fn)
         epoch_iterator = tqdm(data_loader, desc="Iteration", disable=True)
         # accumulate loss since last print
         loc_steps = 0
         loc_loss = 0.0
         st_time = time()
         for step, batch_inputs in enumerate(epoch_iterator):
-            outputs = model(**batch_inputs)
+            outputs = self.model(**batch_inputs)
             loss = outputs.loss
             loss.backward()
 
             # optimizer
-            if step % args.backward_freq == 0:
-                optimizer.step()
-                scheduler.step()
-                model.zero_grad()
+            if step % self.args.backward_freq == 0:
+                self.optimizer.step()
+                self.scheduler.step()
+                self.model.zero_grad()
 
             # some printing within the epoch
             
             loc_loss += loss.item()
             loc_steps += 1
-            if step % args.print_freq == 0 or step == 1:
-                if args.logger:
+            if step % self.args.print_freq == 0 or step == 1:
+                if self.args.logger:
                     self.logger.info(
                         "{:2d} {:5d} of {:5d} \t L: {:.3f} \t -- {:.3f}".format(
-                            e, step, len(dataset) // args.batch_size, loc_loss / loc_steps, time() - st_time,
+                            e, step, len(self.dataset) // self.args.batch_size, loc_loss / loc_steps, time() - st_time,
                         )
                     )
-                elif args.is_colab:
+                elif self.args.is_colab:
                     print(
                         "{:2d} {:5d} of {:5d} \t L: {:.3f} \t -- {:.3f}".format(
-                            e, step, len(dataset) // args.batch_size, loc_loss / loc_steps, time() - st_time,
+                            e, step, len(self.dataset) // self.args.batch_size, loc_loss / loc_steps, time() - st_time,
                         )
                     )
                 loc_loss = 0
@@ -169,10 +173,10 @@ class Trainer:
         # make iterator
         train_sampler = SequentialSampler(self.eval_dataset)
         model_collate_fn = functools.partial(
-            self.make_qa_s2s_batch, tokenizer=self.tokenizer, max_len=self.args.max_length, device=self.args.device
-        )
+            self.make_qa_s2s_batch, tokenizer=self.tokenizer, max_len=self.args.max_length, max_a_len=self.args.max_ans_length, device=self.args.device)
+
         data_loader = DataLoader(self.eval_dataset, batch_size=self.args.batch_size, sampler=train_sampler, collate_fn=model_collate_fn)
-        epoch_iterator = tqdm(data_loader, desc="Iteration", disable=True)
+        epoch_iterator = tqdm(self.data_loader, desc="Iteration", disable=True)
         # accumulate loss since last print
         loc_steps = 0
         loc_loss = 0.0
@@ -201,19 +205,13 @@ class Trainer:
         self.scheduler = get_linear_schedule_with_warmup(
             self.optimizer,
             num_warmup_steps=400,
-            num_training_steps=(self.args.num_epochs + 1) * math.ceil(len(self.train_dataset) / self.args.batch_size),
-        )
+            num_training_steps=(self.args.num_epochs + 1) * math.ceil(len(self.train_dataset) / self.args.batch_size))
 
         
 
         for e in range(self.args.num_epochs):
             self.train_qa_s2s_epoch(
-                self.model,
-                self.train_dataset,
-                self.tokenizer,
-                self.optimizer,
-                self.scheduler,
-                self.args,
+                self,
                 e,
                 curriculum=(e == 0))
 
@@ -227,5 +225,96 @@ class Trainer:
                 self.logger.info("Saving model {}_{}".format(self.model_save_name, e))
             elif self.args.is_colab:
                 print("Saving model {}_{}".format(self.model_save_name, e))
+
             self.eval_qa_s2s_epoch(self)
             torch.save(m_save_dict, os.path.join(self.args.checkpoint_path, "{}_{}.pth".format(self.model_save_name, e)))
+
+    # generate answer from input "question: ... context: <p> ..."
+    def generate(
+        self,
+        question_doc,
+        model,
+        tokenizer,
+        num_answers=1,
+        num_beams=None,
+        min_len=64,
+        max_len=256,
+        do_sample=False,
+        temp=1.0,
+        top_p=None,
+        top_k=None,
+        max_input_length=512,
+        device="cuda:0",
+    ):
+        model_inputs = self.make_qa_s2s_batch([(question_doc, "A")], tokenizer, max_input_length, device=device)
+        n_beams = num_answers if num_beams is None else max(num_beams, num_answers)
+        model = model
+        generated_ids = model.generate(
+            input_ids=model_inputs["input_ids"],
+            attention_mask=model_inputs["attention_mask"],
+            min_length=min_len,
+            max_length=max_len,
+            do_sample=do_sample,
+            early_stopping=True,
+            num_beams=1 if do_sample else n_beams,
+            temperature=temp,
+            top_k=top_k,
+            top_p=top_p,
+            eos_token_id=tokenizer.eos_token_id,
+            no_repeat_ngram_size=3,
+            num_return_sequences=num_answers,
+            decoder_start_token_id=tokenizer.bos_token_id,
+        )
+        return [tokenizer.decode(ans_ids, skip_special_tokens=True).strip() for ans_ids in generated_ids]
+
+    def predict(self):
+        predicted = []
+        reference = []
+        st_time = time()
+        # Generate answers for the full test set
+        for step in range(len(self.eval_dataset)):
+            # create support document with the dense index
+            question = self.eval_dataset[step]['question']
+            support_doc = "<P> " + " <P> ".join([str(p) for p in eval[step]["ctxs"]])
+            # concatenate question and support document into BART input
+            question_doc = "question: {} context: {}".format(question, support_doc)
+            # generate an answer with beam search
+            answer = self.generate(question_doc, self.model, self.tokenizer,
+                        num_answers=1,num_beams=8,min_len=self.args.min_ans_length,
+                        max_len=self.args.max_ans_length,max_input_length=self.args.max_input_length,device=self.args.device)
+            predicted += [answer[0]]
+            reference += [self.eval_dataset[i]['answers'][0]]
+            if step % self.args.print_freq == 0:
+                if self.args.logger:
+                    self.logger.info("{:5d} of {:5d} \t -- {:.3f}".format(step, len(self.eval_dataset) // self.args.batch_size, time() - st_time))
+                elif self.args.is_colab:
+                    print("{:5d} of {:5d} \t L: {:.3f} \t -- {:.3f}".format(step, len(self.eval_dataset) // self.args.batch_size, time() - st_time))
+                st_time = time()
+
+        return predicted, reference
+
+    def evaluate(self, predicted, reference):
+        stemmer = PorterStemmer()
+        rouge = Rouge()
+        nlpp = English()
+        tokenizer = nlpp.tokenizer
+
+        def compute_rouge_eli5(compare_list):
+            preds = [" ".join([stemmer.stem(str(w))for w in tokenizer(pred)])for gold, pred in compare_list]
+            golds = [" ".join([stemmer.stem(str(w))for w in tokenizer(gold)])for gold, pred in compare_list]
+            scores = rouge.get_scores(hyps=preds, refs=golds, avg=True)
+            return scores
+
+
+        compare_list = [(g, p) for p, g in zip(predicted, reference)]
+        scores = compute_rouge_eli5(compare_list)
+        df = pd.DataFrame({
+            'rouge1': [scores['rouge-1']['p'], scores['rouge-1']['r'], scores['rouge-1']['f']],
+            'rouge2': [scores['rouge-2']['p'], scores['rouge-2']['r'], scores['rouge-2']['f']],
+            'rougeL': [scores['rouge-l']['p'], scores['rouge-l']['r'], scores['rouge-l']['f']],
+        }, index=[ 'P', 'R', 'F'])
+
+        if self.args.logger:
+            self.logger.info(df.style.format({'rouge1': "{:.4f}", 'rouge2': "{:.4f}", 'rougeL': "{:.4f}"}))
+        elif self.args.is_colab:
+            print(df.style.format({'rouge1': "{:.4f}", 'rouge2': "{:.4f}", 'rougeL': "{:.4f}"}))
