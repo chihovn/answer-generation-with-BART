@@ -8,6 +8,10 @@ from rouge import Rouge
 from spacy.lang.en import English
 from tabulate import tabulate
 
+#kaggle
+from kaggle_secrets import UserSecretsClient
+user_secrets = UserSecretsClient()
+
 from pathlib import Path
 from tqdm import tqdm
 import pandas as pd
@@ -84,7 +88,8 @@ class Trainer:
 
         if self.args.is_main:
             try:
-                wandb.login()
+                wandb_api = user_secrets.get_secret("wandb_api") 
+                wandb.login(key=wandb_api)
                 self.wandb_logger = True
                 wandb.init(
                     project='ans-gen-BART',
