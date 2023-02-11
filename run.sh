@@ -17,6 +17,5 @@ python3 train.py \
 	--train_print_freq 1000 \
 	--eval_print_freq 100 \
 	--save_freq 5000 \
-	--model_path ./checkpoint/training_1/epoch0/bart-base_0_30000.pth \
 	--lr 2e-4 \
 	--backward_freq 16 
