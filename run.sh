@@ -1,7 +1,7 @@
 #!/bin/sh
 python3 train.py \
-	--train_data ./data/processed/ELI5_train_10_doc.json \
-	--eval_data ./data/processed/ELI5_val_10_doc.json \
+	--train_data /kaggle/input/eli5-10-doc/ELI5_train_10_doc.json \
+	--eval_data /kaggle/input/eli5-10-doc/ELI5_val_10_doc.json \
 	--seed 0 \
 	--is_notebook True \
     --name experiment-1 \
