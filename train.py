@@ -72,7 +72,7 @@ def main(args):
 
         trainer.evaluate(predicted, reference)
 
-        best, worst = get_10_best_and_worst_cases(predicted, reference)
+        best, worst = get_10_best_and_worst_cases(predicted, reference, dataset)
 
         save_data(to_dict(best), os.path.join(args.checkpoint_path, 'best10.json'), logger, type='best')
 

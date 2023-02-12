@@ -365,7 +365,7 @@ class Trainer:
         elif self.args.is_notebook:
             print(tabulate(df, headers = 'keys', tablefmt = 'psql'))
 
-def get_10_best_and_worst_cases(predicted, reference):
+def get_10_best_and_worst_cases(eval_dataset, predicted, reference):
     scores = {}
 
     # make a RougeScorer object with rouge_types=['rouge1']
@@ -386,10 +386,10 @@ def get_10_best_and_worst_cases(predicted, reference):
     for i in range(10):
         best_index = sorted_scores[-i-1][0]
         best_score = sorted_scores[-i-1][1]
-        best.append((predicted[best_index], reference[best_index], best_score))
+        best.append((eval_dataset[best_index]['question'], predicted[best_index], reference[best_index], best_score))
         worst_index = sorted_scores[i][0]
         worst_score = sorted_scores[i][1]
-        worst.append((predicted[worst_index], reference[worst_index], worst_score))
+        worst.append((eval_dataset[worst_index]['question'], predicted[worst_index], reference[worst_index], worst_score))
 
     return best, worst
 
@@ -397,7 +397,7 @@ def print_cases(cases, args, logger):
     result = []
     for i in range(len(cases)):
         result.append([cases[i][0], cases[i][1], cases[i][2]])
-    df = pd.DataFrame(result, columns =['predicted', 'reference', 'rougeL'])
+    df = pd.DataFrame(result, columns =['question', 'predicted', 'reference', 'rougeL'])
     if args.logger:
         logger.info(tabulate(df, headers = 'keys', tablefmt = 'psql'))
     elif args.is_notebook:
