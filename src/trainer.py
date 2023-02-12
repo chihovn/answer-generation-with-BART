@@ -383,7 +383,7 @@ def get_10_best_and_worst_cases(predicted, reference):
     sorted_scores = sorted(scores.items(), key=lambda x:x[1])
     best = []
     worst = []
-    for i in range(3):
+    for i in range(10):
         best_index = sorted_scores[-i-1][0]
         best_score = sorted_scores[-i-1][1]
         best.append((predicted[best_index], reference[best_index], best_score))
