@@ -74,6 +74,10 @@ def main(args):
 
         best, worst = get_10_best_and_worst_cases(predicted, reference)
 
+        save_data(to_dict(best), os.path.join(args.checkpoint_path, 'best10.json'), logger, type='best')
+
+        save_data(to_dict(worst), os.path.join(args.checkpoint_path, 'worst10.json'), logger, type='worst')
+
         if args.logger:
             logger.info('=============10 best cases=============')
         elif args.is_notebook:
@@ -88,9 +92,7 @@ def main(args):
 
         print_cases(worst, args, logger)
 
-        save_data(to_dict(best), os.path.join(args.checkpoint_path, 'best10.json'), logger, type='best')
-
-        save_data(to_dict(worst), os.path.join(args.checkpoint_path, 'worst10.json'), logger, type='worst')
+        
 
 if __name__ == '__main__':
     args = get_parser()

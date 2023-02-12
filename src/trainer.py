@@ -401,5 +401,4 @@ def print_cases(cases, args, logger):
     if args.logger:
         logger.info(tabulate(df, headers = 'keys', tablefmt = 'psql'))
     elif args.is_notebook:
-        display(df)
         print(tabulate(df, headers = 'keys', tablefmt = 'psql'))
