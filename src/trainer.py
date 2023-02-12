@@ -365,7 +365,7 @@ class Trainer:
         elif self.args.is_notebook:
             print(tabulate(df, headers = 'keys', tablefmt = 'psql'))
 
-def get_10_best_and_worst_cases(eval_dataset, predicted, reference):
+def get_10_best_and_worst_cases(predicted, reference, eval_dataset):
     scores = {}
 
     # make a RougeScorer object with rouge_types=['rouge1']
