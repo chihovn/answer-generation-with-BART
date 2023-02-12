@@ -87,7 +87,7 @@ class Trainer:
         self.scheduler = None
         self.model_save_name = self.args.model_name +  '-' + self.args.model_size
 
-        if self.args.is_main and (self.args.is_eval == False):
+        if self.args.is_main and not (self.args.is_eval == False and self.args.model_path is not None and self.args.retrain == False):
             try:
                 wandb_api = user_secrets.get_secret("wandb_api") 
                 wandb.login(key=wandb_api)
