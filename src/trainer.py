@@ -392,13 +392,3 @@ def get_10_best_and_worst_cases(predicted, reference, eval_dataset):
         worst.append((eval_dataset[worst_index]['question'], predicted[worst_index], reference[worst_index], worst_score))
 
     return best, worst
-
-def print_cases(cases, args, logger):  
-    result = []
-    for i in range(len(cases)):
-        result.append([cases[i][0], cases[i][1], cases[i][2]])
-    df = pd.DataFrame(result, columns =['question', 'predicted', 'reference', 'rougeL'])
-    if args.logger:
-        logger.info(tabulate(df, headers = 'keys', tablefmt = 'psql'))
-    elif args.is_notebook:
-        print(tabulate(df, headers = 'keys', tablefmt = 'psql'))
